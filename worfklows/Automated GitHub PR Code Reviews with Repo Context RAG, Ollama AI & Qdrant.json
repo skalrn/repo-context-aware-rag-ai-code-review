@@ -1,0 +1,1181 @@
+{
+  "name": "Automated GitHub PR Code Reviews with Repo Context RAG, Ollama AI & Qdrant",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        32
+      ],
+      "id": "ca76f1b4-b849-490a-b8e9-2a2c50d8e119",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "model": "qwen3:8b",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2624,
+        288
+      ],
+      "id": "a6ae8a18-ba0a-45a8-8181-1912f392f565",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "sender@test.com",
+        "toEmail": "receiver@test.com",
+        "subject": "=Code Review of  {{ $('SetPRConstants').first().json.PR_HTML_URL}}",
+        "html": "={{ $json.data }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3792,
+        48
+      ],
+      "id": "5cc319ed-8bff-4513-a95c-dca2e64a1c46",
+      "name": "Send email",
+      "webhookId": "fa71c98d-5bcd-498b-a02e-69a4200dcf85",
+      "credentials": {
+        "smtp": {
+          "id": "ZDgW6zebWoc7JfU7",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1376,
+        32
+      ],
+      "id": "efafc13f-80cd-4d62-9f9e-57cda415355c",
+      "name": "Loop Over PRs"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('SetPRConstants').first().json.PR_URL }}/files",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2288,
+        48
+      ],
+      "id": "8aa6c48f-7fb1-4973-ac45-1f8d675601c3",
+      "name": "Get files of this PR",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert senior full-stack software engineer acting as an AI code reviewer. You have access to a vector store containing embeddings for all repository context files—architecture documentation, coding conventions, style guides, contribution guidelines, feature specifications, and other project resources.\n\n## PR Review Objectives\n\nWhen reviewing a pull request, you must:\n\n- Enforce repository-specific coding standards, style rules, and documentation expectations.\n- Clarify the project’s intended architecture, design patterns, and functional goals.\n- Validate implementation against documented requirements and specifications.\n- Check for consistency with relevant related code and prior implementations.\n- Analyze overall impact on other modules, integrations, or the broader project.\n\n## Language/Framework-Specific Checks\n\nApply relevant quality checks:\n\n- **Java:** Ensure comprehensive Javadoc comments are present and meet documentation standards.\n- **Next.js (App Router):** Confirm files/routes adhere to app router conventions (`app/` directory usage, appropriate `page.js`/`layout.js` files). Avoid legacy Pages Router patterns (`pages/`) unless explicitly allowed.\n- **Others:** Apply language/framework best practices as specified in vector store context.\n\n## Review Process\n\nGround your review in project facts and referenced context, following these steps:\n\n1. **Identify Changes**: Summarize additions and modifications.\n2. **Architecture Alignment**: Evaluate how structural changes fit the existing architecture.\n3. **UI/UX Review**: Assess new or changed UI/UX for consistency with design patterns.\n4. **Correctness & Edge Cases**: Check for functional accuracy, bugs, and proper handling of edge cases.\n5. **Code Quality**: Assess maintainability, readability, modularity, performance, error handling, and test coverage.\n6. **Best Practices**: Confirm adherence to language conventions and API standards.\n7. **Improvement Suggestions**: Recommend enhancements (performance, security, UX, etc.).\n8. **Project Context Fit**: Analyze alignment with broader project context based on vector store resources.\n\nInclude generic, external best-practice review comments only if they do not conflict with repository rules/guidelines from the vector store.\n\n## Vector Store Usage\n\nReference the vector store to:\n\n- Match PR file changes to project purpose (`README.md`/documentation).\n- Compare dependencies to `package.json` or `requirements.txt`.\n- Use setup/config files to check for compatibility and undocumented changes.\n- Consult style guides/linter configs for validation of code structure/formatting.\n- Apply contribution guidelines to evaluate documentation, structure, and testing.\n\nIf the vector store is not accessible, explain why access to the Qdrant vector store is unavailable.\n\n## PR Reference Details\n\n**PR Number:** #{{ $('SetPRConstants').all()[$runIndex].json.PR_NUMBER }}\n**PR Title:** {{ $('SetPRConstants').all()[$runIndex].json.PR_TITLE }}\n\n**PR Commit Messages**  \n{{ $('GetCommitInPR').all().map(commit => `- ${commit.json.commit.message}`).join('\\n') }}\n\n**📂 Files Changed**  \n{{ $('Get files of this PR').all().map(f => `- ${f.json.filename}`).join('\\n') }}\n\n**🧾 Diff Summary**  \n{{ $json.diff_summary }}\n\n---\n\n## Output Format\n\nRespond with the following structure only. Do not include explanations, reasoning, or extra sections.\n\n<Review>\n\n1. **Introductory Summary**  \n   - Concise overview of the PR’s purpose and changes.\n\n2. **Key Changes**  \n   - Bulleted list of main PR modifications.\n\n3. **Review Comments**  \n   - Order comments by severity:  \n     - Critical issues marked with **❌**  \n     - Warnings and minor issues marked with **⚠️**  \n     - Informational or suggestions can be marked with **ℹ️** (optional)  \n   - For each comment use the following format:  \n\n     **❌**  **Issue Title/Description**  \n     *File Path:* `path/to/file.ext`  \n     *Line Number:* X, Y, Z  \n     *Issue:* Brief explanation of the problem.  \n     *Recommendation:* Clear, actionable recommendation for improvement.  \n\n4. **Additional Suggestions and Observations**  \n   - Bulleted list of secondary or best-practice recommendations (e.g., error handling, security, documentation, architectural or API policies).\n\n---\n\n**Important:** Base all feedback strictly on retrieved facts from the vector store. Avoid speculation or fabrication.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        2736,
+        48
+      ],
+      "id": "1b681c0c-05cf-4f37-9db4-5ca7f10db94d",
+      "name": "Reviewer Agent"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/search/issues?q=repo:{{$('SetReviewConstants').item.json.OWNER_REPO}}+is:pr+is:open+created:>={{ new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        32
+      ],
+      "id": "94fc3170-e5a5-402b-a1a2-0c80babb1b39",
+      "name": "Get PRs created in last 24 hours",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let diffSummary = '';\n\nfor (const item of $input.all()) {\n  const { filename, sha, patch } = item.json;\n\n  diffSummary += `File: ${filename}\\n`;\n  diffSummary += `Commit ID: ${sha}\\n`;\n\n  if (patch) { \n    diffSummary += `Patch: ${patch}\\n\\n`;\n  } else {\n    diffSummary += `Patch not available.\\n\\n`;\n  }\n}\n\nreturn [\n  {\n    json: {\n      diff_summary: diffSummary\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2496,
+        48
+      ],
+      "id": "0a7db83e-1b88-4dba-bdae-5619a0d5378a",
+      "name": "Diff Aggregator"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Vector store containing embeddings of context files of the PR github repo",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "={{ $('SetReviewConstants').first().json.VECTOR_STORE_NAME }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        2752,
+        272
+      ],
+      "id": "0a6057a1-5e26-409f-ae46-76a03b3777b8",
+      "name": "REPO_CONTEXT_VECTORE_STORE",
+      "credentials": {
+        "qdrantApi": {
+          "id": "sFfERYppMeBnFNeA",
+          "name": "Local QdrantApi database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:v1.5"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        2848,
+        432
+      ],
+      "id": "bd92082f-3579-4422-93db-9f43f52b7875",
+      "name": "REPO_CONTEXT_EMBEDDING_MODEL",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const index = $input.first().json.output.indexOf('**Introductory Summary**');\nvar output_trimmed;\nif (index !== -1) {\n  output_trimmed = $input.first().json.output.substring(index);\n} else {\n  output_trimmed = $input.first().json.output;\n}\n  var output = JSON.parse('{\"review\":\"\" }');\n  output.review = output_trimmed;\n  output.think =  $input.first().json.output.substring(0, index-1) ;\n\nreturn output;\n \n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3152,
+        48
+      ],
+      "id": "23cce119-3554-4746-bdd9-5f01b9b50669",
+      "name": "ConvertThinkTextIntoAOutputJsonField"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.PR_URL }}/commits",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1824,
+        48
+      ],
+      "id": "d3f7dc40-d8bc-46ae-854b-51f498e83b12",
+      "name": "GetCommitInPR",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b5aaf9fd-c596-47af-88b2-29be82d2a48a",
+              "name": "pr_commit_id",
+              "value": "={{ $('GetCommitInPR').first().json.sha }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2032,
+        48
+      ],
+      "id": "40537741-7774-4a30-9af0-352af2baad90",
+      "name": "SetCommitID",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('SetPRConstants').first().json.PR_COMMENTS_URL }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3+json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "body",
+              "value": "={{ $json.review }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3344,
+        48
+      ],
+      "id": "158d893d-4930-40f8-ba77-84774fb4abc5",
+      "name": "PostPRSummaryComments",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "30ad92b3-91bc-4707-b361-96af66fbac82",
+              "name": "PR_URL",
+              "value": "={{ $json.pull_request.url }}",
+              "type": "string"
+            },
+            {
+              "id": "c6f611d8-7094-4379-a1b9-cbcb53277207",
+              "name": "PR_HTML_URL",
+              "value": "={{ $json.pull_request.html_url }}",
+              "type": "string"
+            },
+            {
+              "id": "bd39acb2-66c7-4e64-9405-d12c16d283e2",
+              "name": "PR_NUMBER",
+              "value": "={{ $json.number }}",
+              "type": "string"
+            },
+            {
+              "id": "33ee709d-7aa3-4ebb-a6ce-d93c4ca636c0",
+              "name": "PR_COMMENTS_URL",
+              "value": "={{ $json.comments_url }}",
+              "type": "string"
+            },
+            {
+              "id": "1ffb45be-7e2c-4de5-b5ca-a6e0289d698c",
+              "name": "PR_TITLE",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1616,
+        48
+      ],
+      "id": "4b9a5cc9-89e2-4397-88c8-78762ea51560",
+      "name": "SetPRConstants"
+    },
+    {
+      "parameters": {
+        "content": "# Automated GitHub PR Code Reviews with Repo Context RAG & Vector Store Builder\n\n---\n\n## Overview\n\nThis template provides **two connected n8n workflows** that bring repository context awareness into AI-powered GitHub pull request (PR) code reviews using a **Retrieval-Augmented Generation (RAG)** approach with Qdrant vector storage and Ollama LLM.\n\n1. **Vector Store Builder Workflow**  \n   Crawls repository context files (documentation, coding guidelines, architecture references, etc.), generates semantic embeddings using an Ollama embedding model, and stores them in a Qdrant vector store.\n\n2. **AI-Powered PR Review Workflow**  \n   Analyses new or updated PRs by retrieving relevant repository knowledge from the Qdrant store and prompting an Ollama LLM to generate **structured, standards-aware code reviews**. Reviews are added as PR comments and can optionally be emailed.\n\n---\n\n## Features\n\n### Vector Store Builder Workflow\n- Retrieves repository files via GitHub API.\n- Generates vector embeddings for relevant documents and source files.\n- Stores and manages embeddings in Qdrant for semantic search.\n- Keeps repo context up to date for accurate retrieval by AI reviewers.\n\n### AI-Powered PR Review Workflow\n- Triggers on schedule or manual execution.\n- Fetches new or updated PRs(in the last 24 hours), commits, and file diffs from GitHub.\n- Enriches AI prompts with repo-specific context retrieved from Qdrant.\n- Produces **structured markdown reviews** including:\n  - **Introductory Summary** of PR purpose\n  - **Key Changes** in bullet list\n  - **Review Comments** by severity (❌ critical, ⚠️ caution) with file/line refs and recommendations\n  - **Additional Suggestions & Observations**\n- Posts review as a comment on the PR.\n- (Optional) Sends HTML-formatted review via email.\n\n### RAG Integration\n- AI reasoning is grounded in retrieved repository knowledge at review time.\n- Enforces project-specific code style, architecture, and documentation rules.\n- Maintains relevance and freshness by keeping embeddings updated.\n\n---\n",
+        "height": 1120,
+        "width": 816
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        -1440
+      ],
+      "typeVersion": 1,
+      "id": "086c85e1-459b-4038-9ccf-f073a4b63421",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9431ef44-887d-4969-9876-3947289315ee",
+              "name": "REPO_URL",
+              "value": "<REPO_URL>",
+              "type": "string"
+            },
+            {
+              "id": "f7fee371-7fb0-4097-8634-d8bae0e55aa2",
+              "name": "OWNER_REPO",
+              "value": "<OWNER/REPO>",
+              "type": "string"
+            },
+            {
+              "id": "d18f0e78-a9a4-4833-8148-7a776eca2f61",
+              "name": "VECTOR_STORE_NAME",
+              "value": "<VECTOR_STORE_NAME>",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        672,
+        32
+      ],
+      "id": "3ce540a8-adc5-49fd-b96c-1e3a13c64a43",
+      "name": "SetReviewConstants"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.first().json.items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        32
+      ],
+      "id": "0e9042ef-6b32-4e6e-a749-0ac604fa360d",
+      "name": "DerivePRs"
+    },
+    {
+      "parameters": {
+        "chunkSize": 8192,
+        "chunkOverlap": 1638,
+        "options": {}
+      },
+      "id": "cc171000-440f-4194-b0f2-9fa2866148a1",
+      "name": "RecursiveCharacterTextSplitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "position": [
+        3376,
+        -352
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.data }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "file_path",
+                "value": "={{ $json.file_location }}"
+              },
+              {
+                "name": "file_type",
+                "value": "={{ $json.file_type }}"
+              },
+              {
+                "name": "file_purpose",
+                "value": "={{ $json.file_purpose }}"
+              },
+              {
+                "name": "embedding_model",
+                "value": "nomic-embed-text"
+              },
+              {
+                "name": "branch",
+                "value": "main"
+              }
+            ]
+          }
+        }
+      },
+      "id": "813c82da-caff-419c-82c2-d893e5600dd8",
+      "name": "DefaultDataLoader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "position": [
+        3376,
+        -528
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:v1.5"
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        3216,
+        -528
+      ],
+      "id": "af6faf35-399c-4def-ad87-12951835f25f",
+      "name": "EmbeddingsModelOllama",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "={{$('SetConstants').item.json.VECTOR_CONTEXT_NAME}}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "168e6528-d65a-4d50-9ed4-7a945544940a",
+      "name": "QdrantVectorStoreForContext",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "position": [
+        3216,
+        -752
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "qdrantApi": {
+          "id": "sFfERYppMeBnFNeA",
+          "name": "Local QdrantApi database"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "41a1d4ca-e5a5-4fb9-b249-8796ae759b33",
+              "name": "data",
+              "type": "string",
+              "value": "=## file location\n{{$('ConvertContextFileListToJsonArray').item.json.file}}\n## file created\n{{ $now.toISO() }}\n## file contents\n{{ $json.data }}"
+            },
+            {
+              "id": "c091704d-b81c-448b-8c90-156ef568b871",
+              "name": "file_location",
+              "type": "string",
+              "value": "={{$('ConvertContextFileListToJsonArray').item.json.file}}"
+            },
+            {
+              "id": "44b5fe3b-2686-4a1d-ba18-4bffd67dfd55",
+              "name": "file_type",
+              "value": "={{ $('ConvertContextFileListToJsonArray').item.json.file_type }}",
+              "type": "string"
+            },
+            {
+              "id": "9f097201-8b58-4bc8-ad6d-84c989803dc6",
+              "name": "file_purpose",
+              "value": "={{ $('ConvertContextFileListToJsonArray').item.json.file_purpose }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f85171b7-d38f-4ea7-a569-4f1f3a3c1a0e",
+      "name": "PrepareEmbeddingDocument",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        3008,
+        -752
+      ],
+      "typeVersion": 3.3
+    },
+    {
+      "parameters": {
+        "url": "={{ $('SetConstants').item.json.CONTENT_RETREIVER_URL }}/main/{{ $json.file }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2784,
+        -752
+      ],
+      "id": "5a43fb5f-1825-45a5-bcb0-3d25510ac028",
+      "name": "RetrieveContextFileContent",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet raw = $input.first().json.output ;\n\n// Clean up formatting (remove newlines and spaces, just in case)\nraw = raw.replace(/\\n/g, '').trim();\nconsole.log(\"Replaced \\n\" + raw)\n// Parse the string into a real JSON array\nconst array = JSON.parse(raw);\nconsole.log(array)\n// Return each object in the array as its own item\nreturn array.map(entry => ({ json: entry }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2576,
+        -752
+      ],
+      "id": "f75d3f36-76e9-4c6b-9b21-9f774494b3fc",
+      "name": "ConvertContextFileListToJsonArray"
+    },
+    {
+      "parameters": {
+        "model": "qwen3-coder:latest",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        2224,
+        -528
+      ],
+      "id": "a14aed40-326a-435f-8a05-3256c437cf13",
+      "name": "Qwen3-coderLocallyRun",
+      "credentials": {
+        "ollamaApi": {
+          "id": "xHuYe0MDGOs9IpBW",
+          "name": "Local Ollama service"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here is the full list of files in a code repository:\n\n{{ $json.tree.map(f => f.path).join(\"\\n\") }}\n\nYour task is to select the files that would be most helpful in understanding the project's purpose, structure, tech stack, code style, and conventions. For example: README.md, package.json, .eslintrc, configs, etc.\n\nReturn a raw JSON array of objects (not inside a string), like:\n\n[\n  { \"file\": \"README.md\", \n    \"file_type\": \"md\",\n    \"file_purpose\": <Brief summary of the purpose of this file in this repo, ex: Provides a summary and help about the whole repo and the project>\n  },\n  { \"file\": \"package.json\", \n    \"file_type\": \"json\",\n    \"file_purpose\": <Brief summary of the purpose of this file in this repo, ex:lists down the npm packages required for this app>\n  }\n]\nDo not include escape characters, backslashes, or newlines. Just return the raw array.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        2224,
+        -752
+      ],
+      "id": "e86b623b-6a7a-44c7-a985-a2f48d72e874",
+      "name": "IdentifyFilesForRepoContext"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('SetConstants').item.json.REPO_URL }}/git/trees/main?recursive=1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3+json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2016,
+        -752
+      ],
+      "id": "3e4e39fc-ac23-424b-bb45-81d0891aad7d",
+      "name": "GetRepoFileTree",
+      "credentials": {
+        "githubApi": {
+          "id": "Q4jhsbqK66MXVp12",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "83ea4961-a68d-4a14-9172-a85b8e430811",
+              "name": "REPO_URL",
+              "value": "<REPO_URL>",
+              "type": "string"
+            },
+            {
+              "id": "acfd487d-3cba-4697-8220-b9cbd37b9f3b",
+              "name": "VECTOR_CONTEXT_NAME",
+              "value": "<VECTOR_STORE_NAME>",
+              "type": "string"
+            },
+            {
+              "id": "cd5729fe-db9f-42d9-838e-99d4a16eadea",
+              "name": "CONTENT_RETREIVER_URL",
+              "value": "https://raw.githubusercontent.com/<OWNER/REPO>/",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1824,
+        -752
+      ],
+      "id": "100527d9-ef5d-4918-8921-5dd50c8aa2af",
+      "name": "SetConstants"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1616,
+        -752
+      ],
+      "id": "0753b410-c13a-4b22-9b40-969502df8e35",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "content": "# Extended Setup Instructions\n\nThis setup guide provides two separate instruction sets tailored for the two complementary n8n workflows:\n\n- **1. Vector Store Builder Workflow** (builds repository context embeddings)\n- **2. AI-Powered GitHub PR Review Workflow** (consumes embeddings for context-aware PR reviews)\n\n# Note\nThis was built using the self-hosted-ai repo, though the local Ollama‑run LLMs and Qdrant vector store can be replaced with with external services such as OpenAI for LLMs and Pinecone for vector storage. \nhttps://github.com/n8n-io/self-hosted-ai-starter-kit\n\n## 1. Vector Store Builder Workflow Setup\n\nThis workflow leverages an AI Agent to scan the repository’s file tree, identify contextually important files for code review (such as documentation, architecture guides, and coding standards), and generate semantic embeddings for them. These embeddings are stored and maintained in a Qdrant vector database, creating a searchable knowledge base that enables precise, context-aware retrieval during AI-powered code reviews using RAG pipeline.\n\n### Prerequisites\n\n- Access to an n8n instance (self-hosted or cloud)\n- GitHub Personal Access Token (PAT) with read permissions on the target repository\n- Access to a Qdrant instance (self-hosted or cloud) for vector storage\n- Ollama local service running with embedding models enabled\n- Basic familiarity with n8n workflows and credential management\n\n### Step-by-Step Setup\n\n1. **Import Workflow**  \n   Import the Vector Store Builder workflow JSON into your n8n instance via *Workflows > Import*.\n\n2. **Configure Credentials**  \n   - **GitHub API Credential** – Add your GitHub PAT under *Credentials > API Credentials > GitHub API*. Ensure it has the `repo` scope to read repo files.  \n   - **Qdrant API Credential** – Configure access to your Qdrant server under *Credentials*. Provide URL, API key (if any), and relevant connection details.  \n   - **Ollama API Credential** – Set up access to your local Ollama service that will provide embedding models.\n\n3. **Adjust Workflow Parameters**  \n   - Specify the GitHub repository and branch to index.  \n   - Set the vector store collection name to organize embeddings.  \n   - Adjust batch sizes and schedule triggers if needed.\n\n4. **Run and Monitor**  \n   - Execute the workflow manually to build the initial embedding store.  \n   - Monitor logs for successful completion and any errors.  \n   - Schedule regular runs to keep the vector store updated as the repo evolves.\n\n### Notes\n\n- Ensure your repository contains all relevant documentation and architecture files for embedded context.\n- The vector store acts as a knowledge backend for downstream AI review workflows.\n- Keep Ollama embedding models updated and running for optimal embedding generation.\n\n---\n\n## 2. AI-Powered GitHub PR Review Workflow Setup\n\nThis workflow automates reviewing GitHub pull requests by leveraging the vector store built by the previous workflow to provide highly context-aware and standards-aligned reviews using the Ollama LLM.\n\n### Prerequisites\n\n- Operational Vector Store Builder workflow with an up-to-date Qdrant vector store\n- GitHub PAT with permissions to read PRs and post comments (Read access to Code and Metadata, Read and Write access to Issues and Pull Requests)\n- Ollama local LLM service running with the appropriate model for code reviewing\n- (Optional) SMTP server credentials for sending email notifications\n- n8n instance capable of running scheduled workflows and managing HTTP requests\n\n### Step-by-Step Setup\n\n1. **Import Workflow**  \n   Import the AI PR Review workflow JSON into n8n through *Workflows > Import*.\n\n2. **Configure Credentials**  \n   - **GitHub API Credential** – Must have permissions to read PRs, commits, and post comments.  \n   - **Qdrant API Credential** – Access to the vector store with repo context.  \n   - **Ollama API Credential** – Connect to your Ollama local LLM service for generating review content.  \n   - **SMTP Credential (optional)** – If you want email notifications, configure the SMTP server credentials.\n\n3. **Set Workflow Parameters**  \n   - Specify the GitHub repository and relevant filters for PR fetching.  \n   - Configure scheduling intervals for automatic or periodic review runs.  \n   - Update email parameters such as sender, recipient, and message templates if using email notifications.",
+        "height": 2016,
+        "width": 880,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4960,
+        -1488
+      ],
+      "id": "eb14f3fd-c3dc-491f-a34d-f6a05de108ea",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Analyzes the repo structure to select files likely to be important for code review (docs, architecture, standards).\n",
+        "height": 544,
+        "width": 272,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2192,
+        -880
+      ],
+      "typeVersion": 1,
+      "id": "84c97645-ab2f-4389-8ee5-180b7a923488",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "Stores embeddings in a collection for fast retrieval during AI reviews.\n\n",
+        "height": 704,
+        "width": 464,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3168,
+        -864
+      ],
+      "typeVersion": 1,
+      "id": "324fe3bb-e0eb-491c-8e68-c1062b6674cb",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "Generates a structured, context-aware review with summary, key changes, detailed comments, and suggestions using RAG for repo context.",
+        "height": 672,
+        "width": 464,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2608,
+        -80
+      ],
+      "typeVersion": 1,
+      "id": "f2e381a3-1305-4d02-a358-da59607b9703",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "** OPTIONAL **, converts Markdown to HTML format and sends the review summary mail.",
+        "height": 224,
+        "width": 400,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3552,
+        -16
+      ],
+      "id": "51589306-95aa-4b57-88bb-b3c241830cee",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "mode": "markdownToHtml",
+        "markdown": "=# 📝 Summary\n\n{{ $('ConvertThinkTextIntoAOutputJsonField').first().json.review }}\n   \n### LLM thinking summary\n{{ $('ConvertThinkTextIntoAOutputJsonField').first().json.think }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.markdown",
+      "typeVersion": 1,
+      "position": [
+        3584,
+        48
+      ],
+      "id": "c20bbf19-4ad5-4e44-a220-817db8d1a5a5",
+      "name": "Markdown"
+    },
+    {
+      "parameters": {
+        "content": "Trigger to build AI based Repo Context Vector Store",
+        "height": 272,
+        "width": 208,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1552,
+        -848
+      ],
+      "typeVersion": 1,
+      "id": "d9a9f458-a0af-493f-b602-ec65077f09d9",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "content": "# PR Review generated by this workflow\n**Introductory Summary**  \n   - The PR implements user profile management and bulk user registration features, adding new endpoints for retrieving/updating user profiles and registering multiple users in a single request. It also enhances notification capabilities with SMS support and multi-channel notifications.\n\n2. **Key Changes**  \n   - Added `GET /api/v1/users/{id}` and `PUT /api/v1/users/{id}` endpoints in `UserProfileController` for profile management.  \n   - Introduced `POST /api/v1/users/bulkRegister` endpoint in `UserController` for bulk user registration.  \n   - Created `BulkUserRegistrationRequest` DTO to handle bulk registration data.  \n   - Enhanced `NotificationService` with SMS and multi-channel notification methods.  \n   - Implemented `MockSmsProvider` for SMS simulation in development.  \n   - Updated `UserProfileService` and `UserProfileServiceImpl` to handle profile updates with validation.  \n\n3. **Review Comments**  \n   **❌ Direct Repository Access in Controller (File: `UserProfileController.java`, Lines 22, 55)**  \n   - The controller directly accesses `UserRepository`, violating the separation of concerns and layered architecture.  \n   - **Recommendation:** Remove direct repository access and ensure all data access is handled through the service layer (`UserProfileService`).  \n\n   **⚠️ Poor Exception Handling in Bulk Registration (File: `UserController.java`, Lines 76–85)**  \n   - The bulk registration loop silently fails on exceptions without logging or meaningful error handling.  \n   - **Recommendation:** Log detailed errors and ensure each user registration attempt is properly tracked with retry logic or circuit breakers.  \n\n   **⚠️ Duplicate Email Validation Logic (File: `UserController.java`, Lines 125–134)**  \n   - The `SendNotification` endpoint contains redundant email validation logic that may conflict with existing validations.  \n   - **Recommendation:** Consolidate email validation into a single utility method to avoid duplication and ensure consistency.  \n\n   **⚠️ Inconsistent Code Formatting (File: `UserProfileServiceImpl.java`, Lines 82–84)**  \n   - The `validateUpdateRequest` method has mixed indentation (tabs/spaces) and inconsistent operator spacing.  \n   - **Recommendation:** Align with the project’s style guide (e.g., CONTRIBUTING.md) and use consistent formatting.  \n\n   **❌ Dead Code in UserProfileServiceImpl (File: `UserProfileServiceImpl.java`, Lines 45–47)**  \n   - The `SecurityUtil.sanitizeInput` method is never called, making this code unreachable.  \n   - **Recommendation:** Remove unused code to improve maintainability and reduce technical debt.  \n\n   **⚠️ Flaky Test with No Assertions (File: `UserProfileControllerIntegrationTest.java`, Lines 125–130)**  \n   - The `testFlakyTest` method has no assertions and may randomly pass/fail.  \n   - **Recommendation:** Remove or refactor this test to ensure reliability and meaningful test coverage.  \n\n4. **Additional Suggestions and Observations**  \n   - **Security:** Ensure SMS phone number validation uses the `isValidPhoneNumber` method from `SmsProvider` to avoid duplicated logic.  \n   - **Logging:** Replace `System.out.println` in `MockSmsProvider` with structured logging (e.g., SLF4J) for better traceability.  \n   - **Testing:** Add integration tests for SMS and multi-channel notifications to verify end-to-end functionality.  \n   - **Documentation:** Update Javadoc for new endpoints and DTOs to align with the project’s documentation standards.  \n   - **Performance:** Consider adding rate limiting for the bulk registration endpoint to prevent abuse, as per the roadmap for version 3.0.0.  \n   - **Code Quality:** Refactor `NotificationServiceImpl` to avoid redundant method calls and ensure consistent error handling across all notification types.  ",
+        "height": 1152,
+        "width": 832,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4016,
+        -960
+      ],
+      "id": "237cfad5-c3f3-48de-894e-4670677b9f53",
+      "name": "Sticky Note7"
+    },
+    {
+      "parameters": {
+        "content": "Setup Instructions\n\n## 1. Vector Store Builder Workflow\n\n1. Import the workflow into n8n.\n2. Add credentials for GitHub, Qdrant, and Ollama.\n3. Set repository URL/branch and vector store collection name.\n4. Run once manually.\n5. Schedule regular runs.\n\n## 2. AI-Powered GitHub PR Review Workflow\n\n1. Import the workflow into n8n.\n2. Add credentials for GitHub, Qdrant, Ollama, and (optional) SMTP.\n3. Ensure VECTOR_STORE_NAME matches name used in Vector Store Builder workflow.\n4. Set repository details, PR filters, and schedule.\n5. Enable and run.",
+        "height": 432,
+        "width": 768,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        -1456
+      ],
+      "id": "4ff21f7e-8386-48c5-9780-8926f03f97c7",
+      "name": "Sticky Note8"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "SetReviewConstants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Loop Over PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over PRs": {
+      "main": [
+        [],
+        [
+          {
+            "node": "SetPRConstants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get files of this PR": {
+      "main": [
+        [
+          {
+            "node": "Diff Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reviewer Agent": {
+      "main": [
+        [
+          {
+            "node": "ConvertThinkTextIntoAOutputJsonField",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PRs created in last 24 hours": {
+      "main": [
+        [
+          {
+            "node": "DerivePRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diff Aggregator": {
+      "main": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "REPO_CONTEXT_VECTORE_STORE": {
+      "ai_tool": [
+        [
+          {
+            "node": "Reviewer Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "REPO_CONTEXT_EMBEDDING_MODEL": {
+      "ai_embedding": [
+        [
+          {
+            "node": "REPO_CONTEXT_VECTORE_STORE",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ConvertThinkTextIntoAOutputJsonField": {
+      "main": [
+        [
+          {
+            "node": "PostPRSummaryComments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetCommitInPR": {
+      "main": [
+        [
+          {
+            "node": "SetCommitID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetCommitID": {
+      "main": [
+        [
+          {
+            "node": "Get files of this PR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostPRSummaryComments": {
+      "main": [
+        [
+          {
+            "node": "Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetPRConstants": {
+      "main": [
+        [
+          {
+            "node": "GetCommitInPR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetReviewConstants": {
+      "main": [
+        [
+          {
+            "node": "Get PRs created in last 24 hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DerivePRs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RecursiveCharacterTextSplitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "DefaultDataLoader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DefaultDataLoader": {
+      "ai_document": [
+        [
+          {
+            "node": "QdrantVectorStoreForContext",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "EmbeddingsModelOllama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "QdrantVectorStoreForContext",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PrepareEmbeddingDocument": {
+      "main": [
+        [
+          {
+            "node": "QdrantVectorStoreForContext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RetrieveContextFileContent": {
+      "main": [
+        [
+          {
+            "node": "PrepareEmbeddingDocument",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ConvertContextFileListToJsonArray": {
+      "main": [
+        [
+          {
+            "node": "RetrieveContextFileContent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qwen3-coderLocallyRun": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "IdentifyFilesForRepoContext",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IdentifyFilesForRepoContext": {
+      "main": [
+        [
+          {
+            "node": "ConvertContextFileListToJsonArray",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetRepoFileTree": {
+      "main": [
+        [
+          {
+            "node": "IdentifyFilesForRepoContext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetConstants": {
+      "main": [
+        [
+          {
+            "node": "GetRepoFileTree",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "SetConstants",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Markdown": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "88ff64ca-e0d5-4fd0-bb47-49f9f3a02860",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "558d88703fb65b2d0e44613bc35916258b0f0bf983c5d4730c00c424b77ca36a"
+  },
+  "id": "WCJ8RA61w0iWtpx0",
+  "tags": []
+}
